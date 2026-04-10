@@ -1073,7 +1073,6 @@
                 document.getElementById('loading-indicator').classList.add('hidden');
             }
         };
-
         window.addEventListener('DOMContentLoaded', () => {
             app.init();
         });
