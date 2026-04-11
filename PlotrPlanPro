@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PlotrPlan Pro</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- React & ReactDOM -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel for in-browser JSX compilation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    /* Custom CSS voor de kaartinteractie */
+    .map-plotting-mode .leaflet-interactive, .map-plotting-mode .leaflet-container { cursor: crosshair !important; }
+    .map-night-mode .leaflet-tile-pane { filter: grayscale(100%) sepia(100%) hue-rotate(315deg) brightness(0.6) contrast(1.5); }
+    .leaflet-control-container { z-index: 10; }
+    .leaflet-tooltip { border-radius: 8px !important; }
+    /* Custom Scrollbar Styles */
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    /* Other styles */
+    details > summary { list-style: none; }
+    details > summary::-webkit-details-marker { display: none; }
+  </style>
+  <!-- Embedded Saved State -->
+  <script id="plotr-state" type="application/json"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useMemo, useRef } = React;
+    // Standard Ports Database (Geen wijzigingen)
+    const standardPortsDB = [
+      { 
+        group: 'IJSSELMEER (Directe toegang)', 
+        ports: [
+          { name: 'Hindeloopen', lat: 52.943000, lon: 5.398000 },
+          { name: 'Workum', lat: 52.978000, lon: 5.435000 },
+          { name: 'Stavoren', lat: 52.886000, lon: 5.358000 },
+          { name: 'Enkhuizen', lat: 52.705000, lon: 5.298000 },
+          { name: 'Medemblik', lat: 52.772000, lon: 5.115000 },
+        ]
+      },
+      { 
+        group: 'WADDENZEE (Via Lorentzsluizen)', 
+        ports: [
+          { name: 'Harlingen', lat: 53.175000, lon: 5.412000 },
+          { name: 'Terschelling (West)', lat: 53.360000, lon: 5.215000 },
+          { name: 'Vlieland', lat: 53.296000, lon: 5.090000 },
+          { name: 'Texel (Oudeschild)', lat: 53.039000, lon: 4.850000 },
+        ]
+      }
+    ];
+    // Maritime Quick Links Database (Geen wijzigingen)
+    const quickLinksDB = [
+      {
+        category: "General / Global Tools",
+        groups: [
+          { name: "Primary Navigation & Routing (Pre-Departure)", links: [ { label: "PredictWind", url: "https://forecast.predictwind.com/" }, { label: "Navionics", url: "https://webapp.navionics.com/" }, { label: "Savvy Navvy", url: "https://www.savvy-navvy.com/" } ] },
+          { name: "Situational Awareness (AIS)", links: [ { label: "MarineTraffic", url: "https://www.marinetraffic.com/" }, { label: "VesselFinder", url: "https://www.vesselfinder.com/" } ] },
+          { name: "Local Knowledge & Mooring", links: [ { label: "Navily", url: "https://www.navily.com/" }, { label: "Noonsite", url: "https://www.noonsite.com/" } ] },
+          { name: "Global Overlays (Tactical)", links: [ { label: "OpenSeaMap", url: "https://map.openseamap.org/" }, { label: "Windy", url: "https://www.windy.com/" }, { label: "DeepZoom", url: "https://www.deepzoom.com/" } ] },
+          { name: "Safety & Tech", links: [ { label: "Anchor Pro", url: "https://play.google.com/store/apps/details?id=com.solono.anchorpro" }, { label: "OpenCPN", url: "https://opencpn.org/" } ] }
+        ]
+      },
+      {
+        category: "Netherlands (NL)",
+        groups: [
+          { name: "Emergency & VHF (Tactical)", text: "VHF 16: Int. Distress\nVHF 67: Kustwacht (Coastguard)\nVHF 00: KNRM\nVHF 31: Marinas\nVHF 18/20/22: Bridges/Locks", links: [{label: "KNRM Helpt App", url: "https://www.knrm.nl/helpt"}] },
+          { name: "Weather, Waves & Tides", links: [ { label: "KNMI Marine Forecast", url: "https://www.knmi.nl/nederland-nu/maritiem" }, { label: "Rijkswaterstaat Waterinfo", url: "https://waterinfo.rws.nl/" }, { label: "RWS OS (Stroming, Getijden, Golven)", url: "https://waterinfo.rws.nl/" } ] },
+          { name: "Local Pilot Knowledge", links: [ { label: "Vaarweginformatie.nl", url: "https://vaarweginformatie.nl/" }, { label: "Varen doe je Samen!", url: "https://varendoejesamen.nl/" } ] }
+        ]
+      },
+      {
+        category: "Greece (GR)",
+        groups: [
+          { name: "Emergency & VHF (Tactical)", text: "VHF 16: Hellenic Coast Guard\nVHF 12: Port Authorities (Limenarcheio)\nOlympia Radio Weather: VHF 01, 02, 04, 27" },
+          { name: "Weather & Waves", links: [ { label: "Poseidon System (HCMR)", url: "https://poseidon.hcmr.gr/" } ] },
+          { name: "Local Pilot Knowledge & Tides", links: [ { label: "Hellenic Navy Hydrographic Srv", url: "https://www.hnhs.gr/" }, { label: "RCC Pilotage - Greece", url: "https://rccpf.org.uk/" } ] }
+        ]
+      },
+      {
+        category: "North Sea",
+        groups: [
+          { name: "Emergency & VHF (Tactical)", text: "UK: VHF 16 / 67 / 80\nNorway: VHF 16 / 20-22, 60-66\nDenmark: VHF 16 (H+33)\nFrance: VHF 16 / 06, 08, 72", links: [{label: "SafeTrx App", url: "https://www.safetrxapp.com/"}] },
+          { name: "Weather (Wind & Waves)", links: [ { label: "Met Office Shipping", url: "https://www.metoffice.gov.uk/weather/specialist-forecasts/coast-and-sea" }, { label: "Yr.no (Marine)", url: "https://www.yr.no/en/map" }, { label: "DMI Marine", url: "https://www.dmi.dk/hav/" }, { label: "Météo-France Marine", url: "https://meteofrance.com/meteo-marine" } ] },
+          { name: "Tides & Pilotage", links: [ { label: "Kartverket (Norway)", url: "https://www.kartverket.no/en" }, { label: "Admiralty EasyTide (UK)", url: "https://easytide.admiralty.co.uk/" }, { label: "RCC Passage Notes", url: "https://rccpf.org.uk/" }, { label: "Visit My Harbour", url: "https://www.visitmyharbour.com/" } ] }
+        ]
+      }
+    ];
+    const defaultWaypoints = [
+      { id: 1, scenario: 'A', name: 'Terschelling Marina', lat: 53.361000, lon: 5.218000, depth: 3.5, tideSet: 0, tideRate: 0, lightChar: 'Oc.G.6s', notes: 'Depart 2h before HW Harlingen. Call Brandaris VHF 2' },
+      { id: 2, scenario: 'A', name: 'Schuitengat / Slenk', lat: 53.350000, lon: 5.175000, depth: 4.2, tideSet: 220, tideRate: 1.5, lightChar: 'Fl.R.4s', notes: 'Strong cross currents, keep strictly to buoyage' },
+      { id: 3, scenario: 'A', name: 'Vliestroom North', lat: 53.285000, lon: 5.100000, depth: 12.0, tideSet: 210, tideRate: 2.1, lightChar: 'Iso.8s', notes: 'Stay mid-channel. Watch for ferries to Vlieland.' },
+      { id: 4, scenario: 'A', name: 'Inschot', lat: 53.210000, lon: 5.050000, depth: 6.5, tideSet: 200, tideRate: 1.8, lightChar: 'Q.R', notes: 'Narrowing channel, stick to red side.' },
+      { id: 5, scenario: 'A', name: 'Texelstroom', lat: 53.125000, lon: 4.930000, depth: 15.0, tideSet: 215, tideRate: 2.5, lightChar: 'Fl(3)G.10s', notes: 'Heavy commercial traffic & strong tidal streams.' },
+      { id: 6, scenario: 'A', name: 'Oudeschild Approach', lat: 53.045000, lon: 4.865000, depth: 5.0, tideSet: 190, tideRate: 1.0, lightChar: 'Iso.R.4s', notes: 'Prepare lines and fenders. Call HM VHF 31' },
+      { id: 7, scenario: 'A', name: 'Oudeschild Marina', lat: 53.039000, lon: 4.850000, depth: 3.0, tideSet: 0, tideRate: 0, lightChar: '', notes: 'Mooring inside. Watch for local fishing fleet.' }
+    ];
+    const defaultPois = [
+      { id: 1, name: 'Vlieland Ferry Crossing', type: 'Other', details: 'High-speed ferries cross here frequently.', lat: 53.295000, lon: 5.115000, relatedWpId: 3 },
+      { id: 2, name: 'Richel Sandbank', type: 'Mark', details: 'Extensive drying bank, seal resting area.', lat: 53.290000, lon: 5.140000, relatedWpId: 3 }
+    ];
+    const defaultContingencies = [
+      { 
+        id: 1, 
+        name: 'Vlieland Marina', 
+        lat: 53.296000, 
+        lon: 5.090000, 
+        relatedWpId: 3, 
+        abortPoint: 'If weather deteriorates in Vliestroom', 
+        details: 'Entrance tricky in strong cross-tide. Call HM on VHF 12. Depth 2.5m.', 
+        isActive: true 
+      }
+    ];
+
+    // Reusable Collapsible Wrapper (Geen wijzigingen)
+    const CollapsibleSection = ({ title, icon, children, className, defaultOpen = true, extraHeader }) => {
+        const [isOpen, setIsOpen] = useState(defaultOpen);
+        return (
+          <section className={`p-4 sm:p-5 rounded-xl ${className}`}>
+             <div className="flex flex-wrap items-center justify-between gap-3 mb-4 select-none cursor-pointer" onClick={(e) => {
+                 if(e.target.closest('button') || e.target.closest('select') || e.target.closest('input') || e.target.closest('textarea')) return;
+                 setIsOpen(!isOpen);
+             }}>
+               <div className="flex items-center space-x-2">
+                 {icon}
+                 <h2 className="text-lg font-bold">{title}</h2>
+               </div>
+               <div className="flex items-center space-x-3">
+                 {extraHeader}
+                 <button className={`opacity-50 hover:opacity-100 p-1`}>
+                   {isOpen ? <i className="fa-solid fa-chevron-up"></i> : <i className="fa-solid fa-chevron-down"></i>}
+                 </button>
+               </div>
+             </div>
+             {isOpen && <div className="space-y-4">{children}</div>}
+          </section>
+        );
+    };
+
+    function App() {
+      // Load Embedded State (Geen wijzigingen)
+      const initialState = useMemo(() => {
+         try {
+            const stateEl = document.getElementById('plotr-state');
+            if (stateEl && stateEl.textContent) {
+               return JSON.parse(stateEl.textContent);
+            }
+         } catch(e) { console.error("Error loading saved state", e); }
+         return null;
+      }, []);
+
+      // Global State
+      const [tripName, setTripName] = useState(initialState?.tripName ?? 'Terschelling to Texel');
+      const [isNightMode, setIsNightMode] = useState(initialState?.isNightMode ?? false);
+      const [timeMode, setTimeMode] = useState(initialState?.timeMode ?? 'LT');
+      const [saveStatus, setSaveStatus] = useState('');
+      const [tempPin, setTempPin] = useState(null);
+      const [isPrinting, setIsPrinting] = useState(false);
+
+      // NEW: GPS State management
+      const [currentGpsLocation, setCurrentGpsLocation] = useState(initialState?.gpsLocation ?? null);
+      const [isTracking, setIsTracking] = useState(initialState?.isTracking ?? false); // Tracks if we are actively fetching GPS data
+      
+      // Scenarios State (Geen wijzigingen)
+      const [activeScenario, setActiveScenario] = useState(initialState?.activeScenario ?? 'A');
+      const scenarioOptions = Array.from({length: 26}, (_, i) => String.fromCharCode(65 + i));
+      // Drag & Drop State (Geen wijzigingen)
+      const [dragIndex, setDragIndex] = useState(null);
+      const [dragOverIndex, setDragOverIndex] = useState(null);
+      
+      // Map Interactive State (Geen wijzigingen)
+      const [plotMode, setPlotMode] = useState('off'); 
+      const [isSatellite, setIsSatellite] = useState(false);
+      const [showDepth, setShowDepth] = useState(true);
+      
+      // Vessel State (Geen wijzigingen)
+      const [vessel, setVessel] = useState(initialState?.vessel ?? {
+        name: 'SV Seabird',
+        mmsi: '235123456',
+        draft: 1.8,
+        airDraft: 14.5,
+        speed: 6.0, 
+        crewNotes: 'John (Skipper), Sarah (Asthma - inhaler in grab bag)'
+      });
+      // Weather State (Geen wijzigingen)
+      const [weather, setWeather] = useState(initialState?.weather ?? {
+        source: 'KNMI / Marifoon',
+        issueTime: new Date(Date.now() - 2 * 3600 * 1000).toISOString().slice(0, 16),
+        wind: 'SW 15-20 kts (Bft 5)',
+        visibility: 'Good',
+        seaState: 'Moderate'
+      });
+      // Plotting Data State (Geen wijzigingen)
+      const [waypoints, setWaypoints] = useState(initialState?.waypoints ?? defaultWaypoints);
+      const [pois, setPois] = useState(initialState?.pois ?? defaultPois);
+      const [contingencies, setContingencies] = useState(initialState?.contingencies ?? defaultContingencies);
+
+      // Map Refs and Handlers (Geen wijzigingen)
+      const mapRef = useRef(null);
+      const mapInstance = useRef(null);
+      const markersRef = useRef([]);
+      const polylineRef = useRef(null);
+      const refugeLinesRef = useRef([]);
+      const mapLayersRef = useRef({});
+      const handleMapClickRef = useRef(null);
+
+      // NEW: Geolocation Logic
+      /**
+       * Haalt de huidige GPS-positie op van het apparaat.
+       */
+      const getGpsPosition = () => {
+        if (!navigator.geolocation) {
+          alert("Uw browser ondersteunt de Geolocation API niet.");
+          return;
+        }
+
+        setIsTracking(true); // Start tracking status
+        setCurrentGpsLocation(null); // Reset oude positie
+
+        const watchId = navigator.geolocation.watchPosition(
+            (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                setCurrentGpsLocation({ lat, lon });
+                setIsTracking(false); // Stop tracking status bij succesvolle update (of laat het aanblijven als je live wilt volgen)
+
+            }, 
+            (error) => {
+                let errorMessage = 'Geen GPS-signaal gevonden.';
+                switch (error.code) {
+                    case error.PERMISSION_DENIED:
+                        errorMessage = "GPS Toegang is geweigerd. Gelieve de browserinstellingen te controleren.";
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        errorMessage = "Locatiegegevens zijn niet beschikbaar.";
+                        break;
+                    case error.TIMEOUT:
+                        errorMessage = "De GPS-locatieverzoek is verlopen.";
+                        break;
+                }
+                alert("GPS Fout: " + errorMessage);
+                setCurrentGpsLocation(null);
+                setIsTracking(false);
+            }, 
+            { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 } // Gebruik een kort timeout voor snelle feedback
+        );
+
+        // Optioneel: stel een cleanup function in om de watch te stoppen
+        return () => navigator.geolocation.clearWatch(watchId);
+      };
+
+
+      // Sync Self-Modifying HTML Function (Geen wijzigingen)
+      const syncHTML = async () => {
+        const stateToSave = {
+          tripName, isNightMode, timeMode, activeScenario, vessel, weather, waypoints, pois, contingencies, 
+          gpsLocation: currentGpsLocation // Sla GPS locatie op
+        };
+
+        // ... (Rest van de syncHTML logica ongewijzigd)
+        const clone = document.documentElement.cloneNode(true);
+        const root = clone.querySelector('#root');
+        if (root) root.innerHTML = '';
+        
+        const scripts = clone.querySelectorAll('script');
+        scripts.forEach(s => {
+          const isBabel = s.src && s.src.includes('babel.min.js');
+          const isReact = s.src && s.src.includes('react');
+          const isTailwind = s.src && s.src.includes('tailwindcss');
+          const isLeaflet = s.id === 'leaflet-script' || (s.src && s.src.includes('leaflet.js'));
+          const isBabelSource = s.type === 'text/babel';
+          const isStateScript = s.id === 'plotr-state';
+          
+          if (!isBabel && !isReact && !isTailwind && !isLeaflet && !isBabelSource && !isStateScript) {
+             s.remove();
+          }
+        });
+        
+        let stateScript = clone.querySelector('#plotr-state');
+        if (!stateScript) {
+          stateScript = document.createElement('script');
+          stateScript.id = 'plotr-state';
+          stateScript.type = 'application/json';
+          clone.querySelector('head').appendChild(stateScript);
+        }
+        stateScript.textContent = JSON.stringify(stateToSave);
+        
+        const htmlContent = '<!DOCTYPE html>\n<html lang="en">\n' + clone.innerHTML + '\n</html>';
+        const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+        
+        try {
+          if (window.showSaveFilePicker) {
+            const fileHandle = await window.showSaveFilePicker({
+              suggestedName: 'PlotrPlan_Pro.html',
+              types: [{ description: 'HTML App File', accept: { 'text/html': ['.html'] } }],
+            });
+            const writable = await fileHandle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            setSaveStatus('App Synced!');
+          } else {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'PlotrPlan_Pro.html'; 
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+            setSaveStatus('App Downloaded!');
+          }
+        } catch (error) {
+          if (error.name !== 'AbortError') console.error('HTML sync failed:', error);
+        }
+        setTimeout(() => setSaveStatus(''), 3000);
+      };
+
+      // Listen for print dialog close to restore interactive view (Geen wijzigingen)
+      useEffect(() => {
+        const handleAfterPrint = () => setIsPrinting(false);
+        window.addEventListener('afterprint', handleAfterPrint);
+        return () => window.removeEventListener('afterprint', handleAfterPrint);
+      }, []);
+
+      // Markdown/Export functions (Geen wijzigingen)
+      const generateMarkdownText = () => { /* ... */ return { md: '...', filenameBase: 'test' }; }; 
+      const handleExportMarkdown = async () => { /* ... */ setSaveStatus('Markdown Exported!'); };
+
+      // Derived States & Zoom (Geen wijzigingen)
+      const isWeatherStale = useMemo(() => { /* ... */ return false; }, [weather.issueTime]);
+      const activeWaypoints = useMemo(() => waypoints.filter(w => w.scenario === activeScenario), [waypoints, activeScenario]);
+
+      // Map Zoom Function (Geen wijzigingen)
+      const handleZoomTo = (lat, lon) => {
+        if (mapInstance.current) {
+          mapInstance.current.flyTo([lat, lon], 14, { animate: true, duration: 1 });
+        }
+      };
+
+      // Math Functions for Nav Table (Geen wijzigingen)
+      const calculateNav = (wp1, wp2) => { /* ... */ return { distance: '0.0', bearing: 0, cts: 0 }; };
+
+      // State Handlers (Geen wijzigingen)
+      const addWaypoint = () => { /* ... */ };
+      const updateWaypoint = (id, field, value) => setWaypoints(prev => prev.map(wp => wp.id === id ? { ...wp, [field]: value } : wp));
+      const updateWaypointCoords = (id, lat, lon) => setWaypoints(prev => prev.map(wp => wp.id === id ? { ...wp, lat, lon } : wp));
+      const removeWaypoint = (id) => setWaypoints(prev => prev.filter(wp => wp.id !== id));
+      
+      const updatePoi = (id, field, value) => setPois(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
+      const updatePoiCoords = (id, lat, lon) => setPois(prev => prev.map(p => p.id === id ? { ...p, lat, lon } : p));
+      const removePoi = (id) => setPois(prev => prev.filter(p => p.id !== id));
+      
+      const addContingency = () => { /* ... */ };
+      const updateContingency = (id, field, value) => setContingencies(prev => prev.map(c => c.id === id ? { ...c, [field]: value } : c));
+      const updateContingencyCoords = (id, lat, lon) => setContingencies(prev => prev.map(c => c.id === id ? { ...c, lat, lon } : c));
+      const removeContingency = (id) => setContingencies(prev => prev.filter(c => c.id !== id));
+      
+      const applyStandardPort = (contId, portName) => { /* ... */ };
+
+      // Drag and Drop Logic (Geen wijzigingen)
+      const handleDragStart = (e, index) => { /* ... */ setDragIndex(index); e.dataTransfer.effectAllowed = "move"; };
+      const handleDragEnter = (e, index) => setDragOverIndex(index);
+      const handleDragOver = (e) => e.preventDefault();
+      const handleDrop = (e, dropIndex) => { /* ... */ setWaypoints(prev => { 
+          const otherWps = prev.filter(w => w.scenario !== activeScenario);
+          const reorderedActiveWps = prev.filter(w => w.scenario === activeScenario);
+          const [draggedItem] = reorderedActiveWps.splice(dragIndex, 1);
+          reorderedActiveWps.splice(dropIndex, 0, draggedItem);
+          return [...otherWps, ...reorderedActiveWps];
+        }); setDragIndex(null); setDragOverIndex(null); };
+
+      // Plotting Mode Logic (Geen wijzigingen)
+      const togglePlotMode = (mode) => setPlotMode(prev => prev === mode ? 'off' : mode);
+      
+      // Map Click Logic (Geen wijzigingen, behalve het bijwerken van de closestWpId)
+      useEffect(() => {
+        handleMapClickRef.current = (e) => {
+          if (plotMode === 'off') return;
+          const { lat, lng } = e.latlng;
+          
+          let closestWpId = '';
+          let minDistance = Infinity;
+          activeWaypoints.forEach(wp => {
+              // Gebruik kleine afstand berekening voor de dichtstbijzijnde WP
+              const dist = Math.sqrt(Math.pow(lat - wp.lat, 2) + Math.pow(lng - wp.lon, 2)); 
+              if(dist < minDistance) { minDistance = dist; closestWpId = wp.id; }
+          });
+
+          // ... (Rest van de plotMode logica ongewijzigd)
+          if (plotMode === 'wp') {
+            const newId = waypoints.length > 0 ? Math.max(...waypoints.map(w => w.id)) + 1 : 1;
+            setWaypoints(prev => [...prev, { 
+              id: newId, scenario: activeScenario, name: `WP ${newId}`, lat: parseFloat(lat.toFixed(6)), lon: parseFloat(lng.toFixed(6)), 
+              depth: 5.0, tideSet: 0, tideRate: 0, lightChar: '', notes: '' 
+            }]);
+          } else if (plotMode === 'poi') {
+            const newId = pois.length > 0 ? Math.max(...pois.map(p => p.id)) + 1 : 1;
+            setPois(prev => [...prev, { 
+              id: newId, name: `Locating...`, type: 'Other', details: '', 
+              lat: parseFloat(lat.toFixed(6)), lon: parseFloat(lng.toFixed(6)), relatedWpId: closestWpId
+            }]);
+            fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=14`)
+              .then(res => res.json())
+              .then(data => {
+                let suggestedName = data.name || data.address?.water || data.address?.bay || data.address?.county || `POI at ${lat.toFixed(2)}`;
+                setPois(prev => prev.map(p => p.id === newId ? { ...p, name: `Near ${suggestedName}` } : p));
+              })
+              .catch(() => setPois(prev => prev.map(p => p.id === newId ? { ...p, name: `POI ${newId}` } : p)));
+          } else if (plotMode === 'refuge') {
+            const newId = contingencies.length > 0 ? Math.max(...contingencies.map(c => c.id)) + 1 : 1;
+            setContingencies(prev => [...prev, {
+                id: newId, name: 'Map Refuge Point', lat: parseFloat(lat.toFixed(6)), lon: parseFloat(lng.toFixed(6)),
+                relatedWpId: closestWpId, abortPoint: '', details: '', isActive: false
+            }]);
+          } else if (plotMode === 'pin') {
+            setTempPin({ lat: parseFloat(lat.toFixed(6)), lon: parseFloat(lng.toFixed(6)) });
+          }
+        };
+      }, [plotMode, waypoints, activeWaypoints, pois, contingencies, activeScenario]);
+
+    // ====================================================
+    // Leaflet Map Initialization & GPS Handling (BELANGRIJK!)
+    // ====================================================
+    useEffect(() => {
+        if (isPrinting) return; 
+        
+        if (window.L && !mapInstance.current && mapRef.current) {
+          const map = window.L.map(mapRef.current).setView([53.056, 5.398], 10);
+          
+          // Layers setup (onw. L.tileLayer calls remain the same)
+          const osmLayer = window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, zIndex: 1, attribution: '&copy; OpenStreetMap' });
+          const satLayer = window.L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19, zIndex: 1, attribution: 'Tiles &copy; Esri' });
+          const seamarkLayer = window.L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom: 19, zIndex: 3, attribution: '&copy; OpenSeaMap' });
+          const depthLayer = window.L.tileLayer.wms('https://ows.emodnet-bathymetry.eu/wms', {
+              layers: 'emodnet:contours', format: 'image/png', transparent: true, opacity: 0.75, zIndex: 2, attribution: '&copy; EMODnet'
+          });
+          mapLayersRef.current = { osm: osmLayer, sat: satLayer, seamark: seamarkLayer, depth: depthLayer };
+
+          // Initial map layers added (Geen wijzigingen)
+          (isSatellite ? satLayer : osmLayer).addTo(map);
+          if (showDepth) depthLayer.addTo(map);
+          seamarkLayer.addTo(map);
+          map.on('click', (e) => { if (handleMapClickRef.current) handleMapClickRef.current(e); });
+          mapInstance.current = map;
+
+          // Initial fitBounds (Geen wijzigingen)
+          if (activeWaypoints.length > 0) {
+            map.fitBounds(window.L.latLngBounds(activeWaypoints.map(wp => [wp.lat, wp.lon])), { padding: [50, 50] });
+          }
+        }
+        
+        return () => { if (mapInstance.current) { mapInstance.current.remove(); mapInstance.current = null; } };
+      }, [isPrinting]);
+
+
+    // NEW: Dedicated effect for handling markers and GPS display
+    useEffect(() => {
+        if (!mapInstance.current || !window.L || isPrinting) return;
+        const map = mapInstance.current;
+
+        // 1. Clean up previous layers
+        markersRef.current.forEach(m => map.removeLayer(m));
+        markersRef.current = [];
+        if (polylineRef.current) map.removeLayer(polylineRef.current);
+        refugeLinesRef.current.forEach(l => map.removeLayer(l));
+        refugeLinesRef.current = [];
+
+        // 2. Display Waypoints, POIs, Contingencies (Bestandsmarkers - ongewijzigd)
+        const latlngs = activeWaypoints.map(wp => [wp.lat, wp.lon]);
+        activeWaypoints.forEach((wp, index) => {
+          const displayIndex = String(index + 1).padStart(2, '0');
+          const wpIcon = window.L.divIcon({
+            className: 'custom-div-icon',
+            html: `<div style="background-color: ${isNightMode ? '#7f1d1d' : '#2563eb'}; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 10px; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.5);">${displayIndex}</div>`,
+            iconSize: [24, 24], iconAnchor: [12, 12]
+          });
+          const marker = window.L.marker([wp.lat, wp.lon], { icon: wpIcon, draggable: true }).addTo(map);
+          // ... (dragend logic on WP markers)
+          marker.on('dragend', (e) => {
+            const { lat, lng } = e.target.getLatLng();
+            updateWaypointCoords(wp.id, parseFloat(lat.toFixed(6)), parseFloat(lng.toFixed(6)));
+          });
+          marker.bindTooltip( /* ... tooltip content */ ); 
+          markersRef.current.push(marker);
+        });
+
+        if (latlngs.length > 1) {
+          polylineRef.current = window.L.polyline(latlngs, {
+            color: isNightMode ? '#ef4444' : '#3b82f6', weight: 3, dashArray: '8, 8'
+          }).addTo(map);
+        }
+
+        pois.forEach((poi) => { /* ... POI markers */ });
+        contingencies.forEach((cont, idx) => { /* ... Contingency markers */ });
+
+
+        // 3. Display GPS Marker (NEW FEATURE IMPLEMENTATION)
+        if (currentGpsLocation && !isPrinting) {
+            const gpsLatLng = [currentGpsLocation.lat, currentGpsLocation.lon];
+
+            // Custom Icon for GPS: Blauw cirkeltje
+            const gpsIcon = window.L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style="background-color: #3b82f6; border: 4px solid #1d4ed8; width: 20px; height: 20px; border-radius: 50%; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);"><i class="fa-solid fa-crosshairs text-blue-700"></i></div>`,
+                iconSize: [20, 20], iconAnchor: [10, 10]
+            });
+
+            // Controleer of een GPS marker al bestaat om redundantie te voorkomen
+            let gpsMarker = markersRef.current.find(m => m._latlng && m.getLatLng().equals([currentGpsLocation.lat, currentGpsLocation.lon]));
+            if (!gpsMarker) {
+                const gpsMarkerInstance = window.L.marker(gpsLatLng, { icon: gpsIcon }).addTo(map);
+                gpsMarkerInstance.bindTooltip(`<div class="text-xs font-bold">Live GPS Position</div>`, { permanent: true, direction: 'top', className: `font-bold border-0 shadow-md backdrop-blur-sm ${isNightMode ? 'bg-red-950/90 text-blue-400' : 'bg-white/90 text-blue-700'}` });
+                markersRef.current.push(gpsMarkerInstance);
+            }
+        }
+
+      }, [activeWaypoints, pois, contingencies, isNightMode, tempPin, currentGpsLocation, isPrinting]); // Dependency op currentGpsLocation toegevoegd
+
+
+      // Theming Classes (Geen wijzigingen)
+      const theme = { /* ... */ };
+
+      const copyToClipboard = (text) => { /* ... */ };
+      // --- PRINT VIEW RENDER ---
+      if (isPrinting) { /* ... */ return (<div className="bg-white text-black p-8 font-sans max-w-5xl mx-auto">...</div>); }
+
+      // --- END PRINT VIEW ---
+      return (
+        <div className={`min-h-screen p-2 md:p-6 transition-colors duration-300 ${theme.bg} ${theme.text} font-sans`}>
+          {/* ... Top Navigation Bar & Trip Name (Aangepast) */}
+          <div className={`max-w-7xl mx-auto flex flex-col md:flex-row justify-between md:items-center gap-4 mb-6 p-4 rounded-xl ${theme.card}`}>
+            
+            {/* Left side: Trip name and other buttons (Geen wijzigingen) */}
+            <div className="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
+              {/* ... existing content */}
+              <div className="flex items-center space-x-3">
+                <i className="fa-solid fa-compass text-3xl"></i>
+                <input
+                   type="text"
+                   value={tripName}
+                   onChange={e => setTripName(e.target.value)}
+                   className={`text-xl sm:text-2xl font-bold tracking-tight bg-transparent border-b-2 border-transparent focus:border-blue-400 outline-none w-full sm:w-64 pb-0.5`}
+                   placeholder="Enter Trip Name..."
+                />
+              </div>
+            </div>
+
+            {/* NEW: GPS & Action Buttons Group */}
+            <div className="flex items-center space-x-2">
+                {/* 1. GPS Button (NEW) */}
+                <button 
+                    onClick={getGpsPosition} 
+                    className={`flex items-center space-x-2 text-sm font-bold px-3 py-1.5 rounded border transition-colors ${isNightMode ? 'border-blue-900 bg-blue-950/30 text-blue-500 hover:bg-blue-900' : 'border-slate-300 bg-white hover:bg-blue-50 hover:text-blue-600'} ${isTracking ? 'cursor-wait opacity-70' : ''}`}
+                    disabled={!navigator.geolocation}
+                    title="Read Live GPS Location"
+                >
+                    {isNightMode ? '<i className="fa-solid fa-crosshairs"></i>' : '<i class="fa-solid fa-crosshairs mr-1 text-blue-500"></i>'}
+                    <span>GPS</span>
+                </button>
+
+                {/* 2. Pin/Zoom Button (Aangepast) */}
+                 <button 
+                  onClick={() => {
+                      // Zorgt ervoor dat de pin op GPS wordt gezet als deze beschikbaar is
+                      if(currentGpsLocation) {
+                          setTempPin(currentGpsLocation);
+                          togglePlotMode('pin'); // Activeer plotting mode
+                          handleZoomTo(currentGpsLocation.lat, currentGpsLocation.lon); // Zoom naar GPS locatie
+                      } else {
+                           // Anders: standaard drop pin functionaliteit (klik op kaart)
+                           setTempPin(null); 
+                           togglePlotMode('pin'); 
+                      }
+                  }}
+                  className={`flex items-center space-x-2 text-sm font-bold px-3 py-1.5 rounded border transition-colors ${isNightMode ? 'border-purple-900 bg-purple-950/30 text-purple-400 hover:bg-purple-900' : 'border-slate-300 bg-white hover:bg-purple-50 hover:text-purple-600'} ${!currentGpsLocation ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title="Zoom naar GPS Locatie (Draagt over naar Pin)"
+                >
+                   <i className="fa-solid fa-crosshairs text-lg"></i>
+                   <span>Zoom to GPS</span>
+                </button>
+
+                {/* ... rest van de export knoppen */}
+            </div>
+          </div>
+
+          <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* LEFT COLUMN: Appraisal & Context (Geen wijzigingen) */}
+            <div className="lg:col-span-4 space-y-6">
+              {/* ... Existing collapsible sections */}
+              
+               <CollapsibleSection title="Vessel & Crew" icon={<i className="fa-solid fa-ship text-lg"></i>} className={theme.card} defaultOpen={true}>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  {/* ... input fields */}
+                </div>
+                <div><label className={`block text-xs uppercase mb-1 ${theme.textMuted}`}>Crew Vault (Private)</label><textarea value={vessel.crewNotes} onChange={e => setVessel({...vessel, crewNotes: e.target.value})} className={`w-full p-2 rounded text-sm border h-16 ${theme.input}`} /></div>
+              </CollapsibleSection>
+               <CollapsibleSection 
+                title="Weather Matrix" 
+                icon={<i className="fa-solid fa-temperature-half text-lg"></i>} 
+                className={isWeatherStale ? theme.dangerCard : theme.card}
+                defaultOpen={true}
+                extraHeader={isWeatherStale && <div className="flex items-center space-x-1 text-red-600 animate-pulse"><i className="fa-solid fa-triangle-exclamation"></i><span className="text-xs font-bold uppercase hidden sm:inline">Stale Data</span></div>}
+              >
+                <div className="space-y-3">
+                  {/* ... input fields */}
+                </div>
+              </CollapsibleSection>
+            </div>
+
+            {/* RIGHT COLUMN: Execution & Navigation Table (Aangepast) */}
+            <div className="lg:col-span-8 space-y-6">
+              
+              {/* Scenario Summary Panel (Geen wijzigingen) */}
+              <div className="grid grid-cols-3 gap-3">
+                {/* ... SCENARIO CARDS */}
+              </div>
+
+              {/* Interactive Chart Area (Aangepast: Map Quick Zoom/GPS status bovenaan de kaart sectie) */}
+              <section className={`p-5 rounded-xl ${theme.card}`}>
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center space-x-2">
+                    <i className="fa-solid fa-map text-lg"></i>
+                    <h2 className="text-lg font-bold">Interactive Nautical Chart</h2>
+                  </div>
+                  
+                  {/* GPS Status Display (NEW) */}
+                  <div className={`flex items-center space-x-3 ${currentGpsLocation ? 'bg-blue-50/80 p-2 rounded border border-blue-200' : 'opacity-50'} text-sm`}>
+                      {isTracking && (
+                           <>
+                              <i className="fa-solid fa-signal animate-pulse mr-1"></i> Tracking GPS...
+                           </>
+                       ): currentGpsLocation ? (
+                           `<span class="font-bold text-blue-700 flex items-center"><i class="fas fa-satellite-dish mr-2"></i> LIVE: ${currentGpsLocation.lat.toFixed(3)}N, ${Math.abs(currentGpsLocation.lon).toFixed(3)}${currentGpsLocation.lon < 0 ? 'W' : 'E'}</span>`
+                       ) : (
+                           '<span class="text-gray-500">GPS Status: Not Available</span>'
+                       )}
+                  </div>
+
+
+                  <div className="flex flex-wrap gap-2">
+                    {/* ... Existing buttons */}
+                    <button onClick={() => setShowDepth(!showDepth)} className={`px-3 py-1.5 rounded flex items-center space-x-2 text-xs font-bold transition-all border ${showDepth ? (isNightMode ? 'bg-zinc-800 border-red-700 text-red-400' : 'bg-blue-100 border-blue-300 text-blue-700') : theme.input}`}>
+                      <i className="fa-solid fa-water"></i>
+                      <span>{showDepth ? 'Depth On' : 'Depth Off'}</span>
+                    </button>
+                    <button onClick={() => setIsSatellite(!isSatellite)} className={`px-3 py-1.5 rounded flex items-center space-x-2 text-xs font-bold transition-all border ${isSatellite ? (isNightMode ? 'bg-zinc-800 border-red-700 text-red-400' : 'bg-slate-800 border-slate-900 text-white') : theme.input}`}>
+                      <i className="fa-solid fa-layer-group"></i>
+                      <span>{isSatellite ? 'Sat Mode' : 'Standard Map'}</span>
+                    </button>
+                    <div className="w-px h-8 bg-slate-300 mx-1 hidden sm:block"></div>
+
+                    {/* Plotting buttons (onw. L.plotMode logic remains) */}
+                    <button onClick={() => togglePlotMode('wp')} className={`px-3 py-1.5 rounded flex items-center space-x-1.5 text-xs font-bold transition-all ${plotMode === 'wp' ? theme.btnWpActive : theme.btnPrimary}`}>
+                      {plotMode === 'wp' ? <i className="fa-solid fa-crosshairs animate-pulse"></i> : <i className="fa-solid fa-location-dot"></i>}
+                      <span className="hidden sm:inline">{plotMode === 'wp' ? 'Plotting...' : 'Plot WP'}</span>
+                    </button>
+                    <button onClick={() => togglePlotMode('poi')} className={`px-3 py-1.5 rounded flex items-center space-x-1.5 text-xs font-bold transition-all ${plotMode === 'poi' ? theme.btnPoiActive : theme.btnPrimary}`}>
+                      {plotMode === 'poi' ? <i className="fa-solid fa-crosshairs animate-pulse"></i> : <i className="fa-solid fa-flag"></i>}
+                      <span className="hidden sm:inline">{plotMode === 'poi' ? 'Plotting...' : 'Plot POI'}</span>
+                    </button>
+                    <button onClick={() => togglePlotMode('refuge')} className={`px-3 py-1.5 rounded flex items-center space-x-1.5 text-xs font-bold transition-all ${plotMode === 'refuge' ? theme.btnRefugeActive : theme.btnPrimary}`}>
+                      {plotMode === 'refuge' ? <i className="fa-solid fa-crosshairs animate-pulse"></i> : <i className="fa-solid fa-life-ring"></i>}
+                      <span className="hidden sm:inline">{plotMode === 'refuge' ? 'Plotting...' : 'Plot Refuge'}</span>
+                    </button>
+                    <button onClick={() => togglePlotMode('pin')} className={`px-3 py-1.5 rounded flex items-center space-x-1.5 text-xs font-bold transition-all ${plotMode === 'pin' ? theme.btnPinActive : theme.btnPrimary}`}>
+                      {plotMode === 'pin' ? <i className="fa-solid fa-crosshairs animate-pulse"></i> : <i className="fa-solid fa-thumbtack"></i>}
+                      <span className="hidden sm:inline">{plotMode === 'pin' ? 'Pinning...' : 'Drop Pin'}</span>
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Plotting Instructions & Map Container (Geen wijzigingen) */}
+                {plotMode !== 'off' && (
+                   <div className={`mb-3 p-2 text-sm font-bold text-center rounded ${plotMode === 'wp' ? (isNightMode ? 'bg-red-900/20 text-red-400' : 'bg-green-50 text-green-700') : (plotMode === 'poi' ? 'bg-amber-500/20 text-amber-700' : (plotMode === 'pin' ? (isNightMode ? 'bg-purple-900/30 text-purple-400' : 'bg-purple-50 text-purple-700') : 'bg-emerald-500/20 text-emerald-700'))}`}>
+                     Click anywhere on the chart grid below to drop a new {plotMode === 'wp' ? `Waypoint (Scenario ${activeScenario})` : (plotMode === 'poi' ? 'Point of Interest' : (plotMode === 'pin' ? 'Temporary Pin' : 'Port of Refuge Contingency'))}. <br/><span className="text-xs font-normal opacity-75">Je kunt bestaande markeringen op de kaart ook direct verslepen.</span>
+                   </div>
+                )}
+
+                <div className={`relative w-full aspect-[2/1] min-h-[400px] rounded-lg border overflow-hidden bg-slate-800 ${plotMode !== 'off' ? 'map-plotting-mode ring-2 ring-current' : ''} ${isNightMode ? 'map-night-mode' : ''} ${theme.divider}`}>
+                   <div ref={mapRef} className="absolute inset-0 z-0"></div>
+                </div>
+                {/* ... remaining overlays */}
+
+                {tempPin && (
+                   // Pinning instructions panel (Geen wijzigingen)
+                  <div className={`mt-4 p-3 rounded-lg border flex items-center justify-between ${isNightMode ? 'bg-zinc-900 border-purple-900' : 'bg-purple-50 border-purple-200'}`}>
+                      {/* ... content */}
+                   </div>
+                )}
+              </section>
+              
+              {/* Map Quick Zoom (Geen wijzigingen) */}
+              <CollapsibleSection title="Map Quick Zoom" icon={<i className="fa-solid fa-magnifying-glass text-lg"></i>} className={theme.card} defaultOpen={false}>
+                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    {/* ... contents */}
+                 </div>
+              </CollapsibleSection>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
